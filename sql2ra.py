@@ -113,13 +113,11 @@ def translate(stmt):
 
 
 ######### Test #########
-# stmt_result = "\select_{(age = 16) and (gender = 'f')} Person;"
-# ra_result = radb.parse.one_statement_from_string(stmt_result)
-#
-#
-# sql = "select distinct * from Person where Person.gender=Person.age"
-# stmt = sqlparse.parse(sql)[0]
-# ra = translate(stmt)
-# print('='*100)
-# print(ra)
-# print('='*100)
+sql = "select distinct * from CUSTOMER,ORDERS,LINEITEM where CUSTOMER.C_CUSTKEY=ORDERS.O_CUSTKEY " \
+      "and ORDERS.O_ORDERKEY = LINEITEM.L_ORDERKEY and LINEITEM.L_SHIPMODE='AIR' " \
+      "and CUSTOMER.C_MKTSEGMENT = 'HOUSEHOLD'"
+stmt = sqlparse.parse(sql)[0]
+ra = translate(stmt)
+print('='*100)
+print(ra)
+print('='*100)
