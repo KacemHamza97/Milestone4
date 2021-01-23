@@ -340,34 +340,61 @@ def rule_introduce_joins(ra):
 
 
 ######### Test #########
+# dd = {}
+# dd["PART"] = {"P_PARTKEY": "int", "P_NAME": "string", "P_MFGR": "string",
+#               "P_BRAND": "string", "P_TYPE": "string", "P_SIZE": "int", "P_CONTAINER": "string",
+#               "P_RETAILPRICE": "float", "P_COMMENT": "STRING"}
+# dd["CUSTOMER"] = {"C_CUSTKEY": "int", "C_NAME": "string", "C_ADDRESS": "string",
+#                   "C_NATIONKEY": "int", "C_PHONE": "string", "C_ACCTBAL": "float",
+#                   "C_MKTSEGMENT": "string", "C_COMMENT": "string"}
+#
+# dd["REGION"] = {"R_REGIONKEY": "int", "R_NAME" : "string", "R_COMMENT": "string"}
+# dd["ORDERS"] = {"O_ORDERKEY": "int", "O_CUSTKEY": "int", "O_ORDERSTATUS": "string",
+#                 "O_TOTALPRICE": "float", "O_ORDERDATE": "string", "O_ORDERPRIORITY": "string",
+#                 "O_CLERK": "string", "O_SHIPPRIORITY": "int", "O_COMMENT": "string"}
+# dd["LINEITEM"] = {"L_ORDERKEY": "int", "L_PARTKEY": "int", "L_SUPPKEY": "int",
+#                   "L_LINENUMBER": "int", "L_QUANTITY": "int", "L_EXTENDEDPRICE": "float",
+#                   "L_DISCOUNT": "float", "L_TAX": "float", "L_RETURNFLAG": "string",
+#                   "L_LINESTATUS": "string", "L_SHIPDATE": "string", "L_COMMITDATE": "string",
+#                   "L_RECEIPTDATE": "string", "L_SHIPINSTRUCT": "string", "L_SHIPMODE": "string",
+#                   "L_COMMENT": "string"}
+# dd["NATION"] = {"N_NATIONKEY": "int", "N_NAME": "string", "N_REGIONKEY": "int", "N_COMMENT": "string"}
+# dd["SUPPLIER"] = {"S_SUPPKEY": "int", "S_NAME": "string", "S_ADDRESS": "string", "S_NATIONKEY": "int",
+#                   "S_PHONE": "string", "S_ACCTBAL": "float", "S_COMMENT": "string"}
+#
+# dd["PARTSUPP"] = {"PS_PARTKEY": "int", "PS_SUPPKEY": "int", "PS_AVAILQTY": "int",
+#                   "PS_SUPPLYCOST": "float", "PS_COMMENT": "string"}
+#
+# stmt = "\select_{(((CUSTOMER.C_CUSTKEY = ORDERS.O_CUSTKEY) and (ORDERS.O_ORDERKEY = LINEITEM.L_ORDERKEY))" \
+#        " and (LINEITEM.L_SHIPMODE = 'AIR')) and (CUSTOMER.C_MKTSEGMENT = 'HOUSEHOLD')} " \
+#        "((CUSTOMER \cross ORDERS) \cross LINEITEM);"
+#
+# ra = radb.parse.one_statement_from_string(stmt)
+#
+# print('-' * 100)
+# b = rule_break_up_selections(ra)
+# print(b)
+# print('-' * 100)
+# p = rule_push_down_selections(b, dd)
+# print(p)
+# print('-' * 100)
+# m = rule_merge_selections(p)
+# print(m)
+# print('-' * 100)
+# L = rule_introduce_joins(m)
+# print(L)
+
+
+
 dd = {}
-dd["PART"] = {"P_PARTKEY": "int", "P_NAME": "string", "P_MFGR": "string",
-              "P_BRAND": "string", "P_TYPE": "string", "P_SIZE": "int", "P_CONTAINER": "string",
-              "P_RETAILPRICE": "float", "P_COMMENT": "STRING"}
-dd["CUSTOMER"] = {"C_CUSTKEY": "int", "C_NAME": "string", "C_ADDRESS": "string",
-                  "C_NATIONKEY": "int", "C_PHONE": "string", "C_ACCTBAL": "float",
-                  "C_MKTSEGMENT": "string", "C_COMMENT": "string"}
-
-dd["REGION"] = {"R_REGIONKEY": "int", "R_NAME" : "string", "R_COMMENT": "string"}
-dd["ORDERS"] = {"O_ORDERKEY": "int", "O_CUSTKEY": "int", "O_ORDERSTATUS": "string",
-                "O_TOTALPRICE": "float", "O_ORDERDATE": "string", "O_ORDERPRIORITY": "string",
-                "O_CLERK": "string", "O_SHIPPRIORITY": "int", "O_COMMENT": "string"}
-dd["LINEITEM"] = {"L_ORDERKEY": "int", "L_PARTKEY": "int", "L_SUPPKEY": "int",
-                  "L_LINENUMBER": "int", "L_QUANTITY": "int", "L_EXTENDEDPRICE": "float",
-                  "L_DISCOUNT": "float", "L_TAX": "float", "L_RETURNFLAG": "string",
-                  "L_LINESTATUS": "string", "L_SHIPDATE": "string", "L_COMMITDATE": "string",
-                  "L_RECEIPTDATE": "string", "L_SHIPINSTRUCT": "string", "L_SHIPMODE": "string",
-                  "L_COMMENT": "string"}
-dd["NATION"] = {"N_NATIONKEY": "int", "N_NAME": "string", "N_REGIONKEY": "int", "N_COMMENT": "string"}
-dd["SUPPLIER"] = {"S_SUPPKEY": "int", "S_NAME": "string", "S_ADDRESS": "string", "S_NATIONKEY": "int",
-                  "S_PHONE": "string", "S_ACCTBAL": "float", "S_COMMENT": "string"}
-
-dd["PARTSUPP"] = {"PS_PARTKEY": "int", "PS_SUPPKEY": "int", "PS_AVAILQTY": "int",
-                  "PS_SUPPLYCOST": "float", "PS_COMMENT": "string"}
-
-stmt = "\select_{(((CUSTOMER.C_CUSTKEY = ORDERS.O_CUSTKEY) and (ORDERS.O_ORDERKEY = LINEITEM.L_ORDERKEY))" \
-       " and (LINEITEM.L_SHIPMODE = 'AIR')) and (CUSTOMER.C_MKTSEGMENT = 'HOUSEHOLD')} " \
-       "((CUSTOMER \cross ORDERS) \cross LINEITEM);"
+dd["Person"] = {"name": "string", "age": "integer", "gender": "string"}
+dd["Eats"] = {"name": "string", "pizza": "string"}
+dd["Serves"] = {"pizzeria": "string", "pizza": "string", "price": "integer"}
+dd["Frequents"] = {"name": "string", "pizzeria": "string"}
+#
+stmt = "\project_{P.name, S.pizzeria} (\select_{((P.name = E.name) and (E.pizza = S.pizza)) " \
+       "and (E.pizza = 'mushroom')} (((\\rename_{P: *} Person) \cross (\\rename_{E: *} Eats)) " \
+       "\cross (\\rename_{S: *} Serves)));"
 
 ra = radb.parse.one_statement_from_string(stmt)
 
@@ -383,17 +410,3 @@ print(m)
 print('-' * 100)
 L = rule_introduce_joins(m)
 print(L)
-
-
-
-# dd = {}
-# dd["Person"] = {"name": "string", "age": "integer", "gender": "string"}
-# dd["Eats"] = {"name": "string", "pizza": "string"}
-# dd["Serves"] = {"pizzeria": "string", "pizza": "string", "price": "integer"}
-# dd["Frequents"] = {"name": "string", "pizzeria": "string"}
-# #
-# stmt = "\project_{P.name, S.pizzeria} (\select_{((P.name = E.name) and (E.pizza = S.pizza)) " \
-#        "and (E.pizza = 'mushroom')} (((\\rename_{P: *} Person) \cross (\\rename_{E: *} Eats)) " \
-#        "\cross (\\rename_{S: *} Serves)));"
-#
-# ra = radb.parse.one_statement_from_string(stmt)

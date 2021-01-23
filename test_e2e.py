@@ -34,9 +34,6 @@ class End2EndUnitTests(unittest.TestCase):
 
         ra3 = raopt.rule_merge_selections(ra2)
         ra4 = raopt.rule_introduce_joins(ra3)
-        print("*"*100)
-        print(ra4)
-        print("*" * 100)
 
         task = ra2mr.task_factory(ra4, env=ra2mr.ExecEnv.MOCK)
         luigi.build([task], local_scheduler=True)

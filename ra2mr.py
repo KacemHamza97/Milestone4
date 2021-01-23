@@ -163,28 +163,172 @@ this produces a tree of luigi tasks with the physical query operators.
 '''
 
 
-def task_factory(raquery, step=1, env=ExecEnv.HDFS):
+def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=True):
     assert (isinstance(raquery, radb.ast.Node))
+
+    if isinstance(raquery, radb.ast.Select) and isinstance(raquery.inputs[0], radb.ast.Rename):
+        return SelectRenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+
+    elif isinstance(raquery, radb.ast.Join):
+        return JointSelect(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
     if isinstance(raquery, radb.ast.Select):
         return SelectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+
+    elif isinstance(raquery, radb.ast.Rename):
+        return RenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
     elif isinstance(raquery, radb.ast.RelRef):
         filename = raquery.rel + ".json"
         return InputData(filename=filename, exec_environment=env)
 
-    elif isinstance(raquery, radb.ast.Join):
-        return JoinTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+    # elif isinstance(raquery, radb.ast.Join):
+    #     return JoinTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
     elif isinstance(raquery, radb.ast.Project):
         return ProjectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
-    elif isinstance(raquery, radb.ast.Rename):
-        return RenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
-
     else:
         # We will not evaluate the Cross product on Hadoop, too expensive.
         raise Exception("Operator " + str(type(raquery)) + " not implemented (yet).")
+
+
+class JointSelect(RelAlgQueryTask):
+    ###not working :( I should implement a simple joint class with two inputs of type (select, rename)
+    ### otherwise let the normal joint does the work
+    def requires(self):
+        ra = radb.parse.one_statement_from_string(self.querystring)
+        assert (isinstance(ra, radb.ast.Join))
+
+        task1 = task_factory(ra.inputs[0], step=self.step + 1, env=self.exec_environment)
+        task2 = task_factory(ra.inputs[1], step=self.step + count_steps(ra.inputs[0]) + 1,
+                             env=self.exec_environment)
+        if isinstance(ra.inputs[0], radb.ast.Select):
+            if isinstance(ra.inputs[0].inputs[0], radb.ast.Rename):
+                task1 = task_factory(ra.inputs[0].inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
+        elif isinstance(ra.inputs[1], radb.ast.Select):
+            if isinstance(ra.inputs[1].inputs[0], radb.ast.Rename):
+                task2 = task_factory(ra.inputs[1].inputs[0].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
+                                 env=self.exec_environment)
+        if isinstance(ra.inputs[0], radb.ast.Rename):
+            task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
+        elif isinstance(ra.inputs[1], radb.ast.Rename):
+            task2 = task_factory(ra.inputs[1].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
+                                 env=self.exec_environment)
+        return [task1, task2]
+
+    def mapper(self, line):
+        relation, tuple = line.split('\t')
+        json_tuple = json.loads(tuple)
+        ra = radb.parse.one_statement_from_string(self.querystring)
+
+        input0 = ra.inputs[0]
+        input1 = ra.inputs[1]
+        if isinstance(input0, radb.ast.Join):
+            res = json.dumps(json_tuple)
+            yield ("join", res)
+
+        if isinstance(input0, radb.ast.Select):
+            input0 = clean_select(input0)
+            condition = input0.cond
+            if isinstance(input0.inputs[0], radb.ast.Rename):
+                rename, real_name = get_table(input0.inputs[0])
+                if real_name == relation:
+                    d = {}
+                    key_list = json_tuple.keys()
+                    new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
+                    values_list = json_tuple.values()
+                    d = {x: y for x, y in zip(new_key_list, values_list)}
+
+                    first_key = list(d.keys())[0]
+                    table_name = first_key[:first_key.index(".")]
+                    cond_list = extract_cond(table_name, condition)
+                    test = True
+                    for c1, c2 in cond_list:
+                        if not cmp(str(d[c1]), c2):
+                            test = False
+                            break
+                    if test:
+                        res = json.dumps(d)
+                        yield (relation, res)
+        elif isinstance(input0, radb.ast.Rename):
+            rename, real_name = get_table(input0)
+            if real_name == relation:
+                d = {}
+                key_list = json_tuple.keys()
+                new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
+                values_list = json_tuple.values()
+                d = {x: y for x, y in zip(new_key_list, values_list)}
+                res = json.dumps(d)
+                yield (relation, res)
+        # else:
+        #     ra = json.dumps(json_tuple)
+        #     yield ("join", ra)
+
+        if isinstance(input1, radb.ast.Select):
+            input1 = clean_select(input1)
+            condition = input1.cond
+            if isinstance(input1.inputs[0], radb.ast.Rename):
+                rename, real_name = get_table(input1.inputs[0])
+                if real_name == relation:
+                    d = {}
+                    key_list = json_tuple.keys()
+                    new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
+                    values_list = json_tuple.values()
+                    d = {x: y for x, y in zip(new_key_list, values_list)}
+
+                    first_key = list(d.keys())[0]
+                    table_name = first_key[:first_key.index(".")]
+                    cond_list = extract_cond(table_name, condition)
+                    test = True
+                    for c1, c2 in cond_list:
+                        if not cmp(str(d[c1]), c2):
+                            test = False
+                            break
+                    if test:
+                        res = json.dumps(d)
+                        yield (relation, res)
+        elif isinstance(input1, radb.ast.Rename):
+            rename, real_name = get_table(input1)
+            if real_name == relation:
+                d = {}
+                key_list = json_tuple.keys()
+                new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
+                values_list = json_tuple.values()
+                d = {x: y for x, y in zip(new_key_list, values_list)}
+                res = json.dumps(d)
+                yield (relation, res)
+        # else:
+        #     ra = json.dumps(json_tuple)
+        #     yield ("join", ra)
+
+    def reducer(self, key, values):
+        raquery = radb.parse.one_statement_from_string(self.querystring)
+        condition = raquery.cond
+        L = [json.loads(e) for e in values]
+        list_cond = []
+        list_cond = extract_cond_joint(condition)
+        first_key = list_cond[0][0]
+        table_name1 = first_key[:first_key.index(".")]
+        second_key = list_cond[0][1]
+        table_name2 = second_key[:second_key.index(".")]
+        joint_list1, joint_list2 = [], []
+        for e in L:
+            if extract_tabname_record(e) == table_name2:
+                joint_list2.append(e)
+            else:
+                joint_list1.append(e)
+        for e1 in joint_list1:
+            for e2 in joint_list2:
+                test = True
+                for c1, c2 in list_cond:
+                    if e1[c1] != e2[c2]:
+                        test = False
+                        break
+                if test:
+                    d = {x: y for x, y in zip(list(e1.keys()) + list(e2.keys()), list(e1.values()) + list(e2.values()))}
+                    res = json.dumps(d)
+                    yield ('joint1', res)
 
 
 class JoinTask(RelAlgQueryTask):
@@ -262,6 +406,41 @@ class SelectTask(RelAlgQueryTask):
                 break
         if test:
             yield (relation, tuple)
+
+
+class SelectRenameTask(RelAlgQueryTask):
+    def requires(self):
+        raquery = radb.parse.one_statement_from_string(self.querystring)
+        assert (isinstance(raquery, radb.ast.Select))
+
+        return [task_factory(raquery.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)]
+
+    def mapper(self, line):
+        relation, tuple = line.split('\t')
+        json_tuple = json.loads(tuple)
+        ra = radb.parse.one_statement_from_string(self.querystring)
+        ra = clean_select(ra)
+        condition = ra.cond
+
+        rename, real_name = get_table(ra.inputs[0])
+        if real_name == relation:
+            d = {}
+            key_list = json_tuple.keys()
+            new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
+            values_list = json_tuple.values()
+            d = {x: y for x, y in zip(new_key_list, values_list)}
+
+        first_key = list(d.keys())[0]
+        table_name = first_key[:first_key.index(".")]
+        cond_list = extract_cond(table_name, condition)
+        test = True
+        for c1, c2 in cond_list:
+            if not cmp(str(d[c1]), c2):
+                test = False
+                break
+        if test:
+            res = json.dumps(d)
+            yield (relation, res)
 
 
 class RenameTask(RelAlgQueryTask):

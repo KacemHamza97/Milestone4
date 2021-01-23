@@ -118,6 +118,6 @@ sql = "select distinct * from CUSTOMER,ORDERS,LINEITEM where CUSTOMER.C_CUSTKEY=
       "and CUSTOMER.C_MKTSEGMENT = 'HOUSEHOLD'"
 stmt = sqlparse.parse(sql)[0]
 ra = translate(stmt)
-print('='*100)
-print(ra)
-print('='*100)
+# print('='*100)
+# print(ra)
+# print('='*100)
