@@ -209,7 +209,7 @@ class JointSelect(RelAlgQueryTask):
         elif isinstance(ra.inputs[1], radb.ast.Select):
             if isinstance(ra.inputs[1].inputs[0], radb.ast.Rename):
                 task2 = task_factory(ra.inputs[1].inputs[0].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
-                                 env=self.exec_environment)
+                                     env=self.exec_environment)
         if isinstance(ra.inputs[0], radb.ast.Rename):
             task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
         elif isinstance(ra.inputs[1], radb.ast.Rename):
@@ -224,7 +224,10 @@ class JointSelect(RelAlgQueryTask):
 
         input0 = ra.inputs[0]
         input1 = ra.inputs[1]
-        if isinstance(input0, radb.ast.Join):
+        if isinstance(input0, radb.ast.Join) and relation == 'joint1': #ici l'erreur
+            res = json.dumps(json_tuple)
+            yield ("join", res)
+        if isinstance(input1, radb.ast.Join) and relation == 'joint1':
             res = json.dumps(json_tuple)
             yield ("join", res)
 
@@ -250,20 +253,35 @@ class JointSelect(RelAlgQueryTask):
                             break
                     if test:
                         res = json.dumps(d)
-                        yield (relation, res)
+                        yield ("join", res)
+
+            elif input0.inputs[0].rel == relation:
+                first_key = list(json_tuple.keys())[0]
+                table_name = first_key[:first_key.index(".")]
+                cond_list = extract_cond(table_name, condition)
+                test = True
+                for c1, c2 in cond_list:
+                    if not cmp(str(json_tuple[c1]), c2):
+                        test = False
+                        break
+                if test:
+                    res = json.dumps(json_tuple)
+                    yield ("join", res)
+
         elif isinstance(input0, radb.ast.Rename):
             rename, real_name = get_table(input0)
-            if real_name == relation:
+            if real_name == relation and input0.relname == rename:
                 d = {}
                 key_list = json_tuple.keys()
                 new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
                 values_list = json_tuple.values()
                 d = {x: y for x, y in zip(new_key_list, values_list)}
                 res = json.dumps(d)
-                yield (relation, res)
-        # else:
-        #     ra = json.dumps(json_tuple)
-        #     yield ("join", ra)
+                yield ("join", res)
+
+        elif isinstance(input0, radb.ast.RelRef) and relation == input0.rel:
+            res = json.dumps(json_tuple)
+            yield ("join", res)
 
         if isinstance(input1, radb.ast.Select):
             input1 = clean_select(input1)
@@ -287,7 +305,20 @@ class JointSelect(RelAlgQueryTask):
                             break
                     if test:
                         res = json.dumps(d)
-                        yield (relation, res)
+                        yield ("join", res)
+            elif input1.inputs[0].rel == relation:
+                first_key = list(json_tuple.keys())[0]
+                table_name = first_key[:first_key.index(".")]
+                cond_list = extract_cond(table_name, condition)
+                test = True
+                for c1, c2 in cond_list:
+                    if not cmp(str(json_tuple[c1]), c2):
+                        test = False
+                        break
+                if test:
+                    res = json.dumps(json_tuple)
+                    yield ("join", res)
+
         elif isinstance(input1, radb.ast.Rename):
             rename, real_name = get_table(input1)
             if real_name == relation:
@@ -297,14 +328,17 @@ class JointSelect(RelAlgQueryTask):
                 values_list = json_tuple.values()
                 d = {x: y for x, y in zip(new_key_list, values_list)}
                 res = json.dumps(d)
-                yield (relation, res)
-        # else:
-        #     ra = json.dumps(json_tuple)
-        #     yield ("join", ra)
+                yield ("join", res)
+
+        elif isinstance(input1, radb.ast.RelRef) and relation == input1.rel:
+            res = json.dumps(json_tuple)
+            yield ("join", res)
+
 
     def reducer(self, key, values):
         raquery = radb.parse.one_statement_from_string(self.querystring)
         condition = raquery.cond
+        values = set(values)
         L = [json.loads(e) for e in values]
         list_cond = []
         list_cond = extract_cond_joint(condition)
