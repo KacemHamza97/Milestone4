@@ -163,18 +163,18 @@ this produces a tree of luigi tasks with the physical query operators.
 '''
 
 
-def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=True):
+def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=False):
     assert (isinstance(raquery, radb.ast.Node))
+    print("="*100)
+    print(optimize)
+    print("="*100)
 
     if optimize:
-        if isinstance(raquery, radb.ast.Select) and isinstance(raquery.inputs[0], radb.ast.Rename):
+        if isinstance(raquery, radb.ast.Select):
             return SelectOpTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
         elif isinstance(raquery, radb.ast.Join):
             return JointOpTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
-
-        if isinstance(raquery, radb.ast.Select):
-            return SelectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
         elif isinstance(raquery, radb.ast.Rename):
             return RenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
@@ -217,26 +217,26 @@ class JointOpTask(RelAlgQueryTask):
         ra = radb.parse.one_statement_from_string(self.querystring)
         assert (isinstance(ra, radb.ast.Join))
 
-        task1 = task_factory(ra.inputs[0], step=self.step + 1, env=self.exec_environment)
+        task1 = task_factory(ra.inputs[0], step=self.step + 1, env=self.exec_environment, optimize=True)
         task2 = task_factory(ra.inputs[1], step=self.step + count_steps(ra.inputs[0]) + 1,
-                             env=self.exec_environment)
+                             env=self.exec_environment, optimize=True)
         if isinstance(ra.inputs[0], radb.ast.Select):
             if isinstance(ra.inputs[0].inputs[0], radb.ast.Rename):
-                task1 = task_factory(ra.inputs[0].inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
+                task1 = task_factory(ra.inputs[0].inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment, optimize=True)
             else:
-                task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
+                task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment, optimize=True)
         elif isinstance(ra.inputs[1], radb.ast.Select):
             if isinstance(ra.inputs[1].inputs[0], radb.ast.Rename):
                 task2 = task_factory(ra.inputs[1].inputs[0].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
-                                     env=self.exec_environment)
+                                     env=self.exec_environment, optimize=True)
             else:
                 task2 = task_factory(ra.inputs[1].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
-                                     env=self.exec_environment)
+                                     env=self.exec_environment, optimize=True)
         if isinstance(ra.inputs[0], radb.ast.Rename):
-            task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
+            task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment, optimize=True)
         elif isinstance(ra.inputs[1], radb.ast.Rename):
             task2 = task_factory(ra.inputs[1].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
-                                 env=self.exec_environment)
+                                 env=self.exec_environment, optimize=True)
         return [task1, task2]
 
     def mapper(self, line):
@@ -440,8 +440,10 @@ class SelectOpTask(RelAlgQueryTask):
     def requires(self):
         raquery = radb.parse.one_statement_from_string(self.querystring)
         assert (isinstance(raquery, radb.ast.Select))
-
-        return [task_factory(raquery.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)]
+        if isinstance(raquery.inputs[0], radb.ast.Rename):
+            return [task_factory(raquery.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment, optimize=True)]
+        else:
+            return [task_factory(raquery.inputs[0], step=self.step + 1, env=self.exec_environment, optimize=True)]
 
     def mapper(self, line):
         relation, tuple = line.split('\t')
@@ -450,25 +452,37 @@ class SelectOpTask(RelAlgQueryTask):
         ra = clean_select(ra)
         condition = ra.cond
 
-        rename, real_name = get_table(ra.inputs[0])
-        if real_name == relation:
-            d = {}
-            key_list = json_tuple.keys()
-            new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
-            values_list = json_tuple.values()
-            d = {x: y for x, y in zip(new_key_list, values_list)}
+        if isinstance(ra.inputs[0], radb.ast.Rename):
+            rename, real_name = get_table(ra.inputs[0])
+            if real_name == relation:
+                d = {}
+                key_list = json_tuple.keys()
+                new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
+                values_list = json_tuple.values()
+                d = {x: y for x, y in zip(new_key_list, values_list)}
 
-        first_key = list(d.keys())[0]
-        table_name = first_key[:first_key.index(".")]
-        cond_list = extract_cond(table_name, condition)
-        test = True
-        for c1, c2 in cond_list:
-            if not cmp(str(d[c1]), c2):
-                test = False
-                break
-        if test:
-            res = json.dumps(d)
-            yield (relation, res)
+            first_key = list(d.keys())[0]
+            table_name = first_key[:first_key.index(".")]
+            cond_list = extract_cond(table_name, condition)
+            test = True
+            for c1, c2 in cond_list:
+                if not cmp(str(d[c1]), c2):
+                    test = False
+                    break
+            if test:
+                res = json.dumps(d)
+                yield (relation, res)
+        else:
+            first_key = list(json_tuple.keys())[0]
+            table_name = first_key[:first_key.index(".")]
+            cond_list = extract_cond(table_name, condition)
+            test = True
+            for c1, c2 in cond_list:
+                if not cmp(str(json_tuple[c1]), c2):
+                    test = False
+                    break
+            if test:
+                yield (relation, tuple)
 
 
 class SelectTask(RelAlgQueryTask):

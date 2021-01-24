@@ -54,6 +54,9 @@ def eval(sf, env, query, optimize):
     ra2 = raopt.rule_push_down_selections(ra1, dd)
     ra3 = raopt.rule_merge_selections(ra2)
     ra4 = raopt.rule_introduce_joins(ra3)
+    print("*"*100)
+    print(optimize)
+    print("*" * 100)
 
     task = ra2mr.task_factory(ra4, env=env, optimize=optimize)
 
