@@ -165,9 +165,6 @@ this produces a tree of luigi tasks with the physical query operators.
 
 def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=False):
     assert (isinstance(raquery, radb.ast.Node))
-    print("="*100)
-    print(optimize)
-    print("="*100)
 
     if optimize:
         if isinstance(raquery, radb.ast.Select):
