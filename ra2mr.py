@@ -174,14 +174,14 @@ def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=False):
             return JointOpTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
         elif isinstance(raquery, radb.ast.Rename):
-            return RenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+            return RenameOpTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
         elif isinstance(raquery, radb.ast.RelRef):
             filename = raquery.rel + ".json"
             return InputData(filename=filename, exec_environment=env)
 
         elif isinstance(raquery, radb.ast.Project):
-            return ProjectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+            return ProjectOpTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
         else:
             # We will not evaluate the Cross product on Hadoop, too expensive.
@@ -509,6 +509,31 @@ class SelectTask(RelAlgQueryTask):
             yield (relation, tuple)
 
 
+class RenameOpTask(RelAlgQueryTask):
+
+    def requires(self):
+        raquery = radb.parse.one_statement_from_string(self.querystring)
+        assert (isinstance(raquery, radb.ast.Rename))
+
+        return [task_factory(raquery.inputs[0], step=self.step + 1, env=self.exec_environment,optimize=True)]
+
+    def mapper(self, line):
+        relation, tuple = line.split('\t')
+        json_tuple = json.loads(tuple)
+
+        ra = radb.parse.one_statement_from_string(self.querystring)
+        rename, real_name = get_table(ra)
+        if real_name == relation:
+            d = {}
+            key_list = json_tuple.keys()
+            new_key_list = [e.replace(relation + ".", rename + ".") for e in key_list]
+            values_list = json_tuple.values()
+            d = {x: y for x, y in zip(new_key_list, values_list)}
+            res = json.dumps(d)
+            yield (relation, res)
+
+
+
 class RenameTask(RelAlgQueryTask):
 
     def requires(self):
@@ -531,6 +556,38 @@ class RenameTask(RelAlgQueryTask):
             d = {x: y for x, y in zip(new_key_list, values_list)}
             res = json.dumps(d)
             yield (relation, res)
+
+
+class ProjectOpTask(RelAlgQueryTask):
+
+    def requires(self):
+        raquery = radb.parse.one_statement_from_string(self.querystring)
+        assert (isinstance(raquery, radb.ast.Project))
+
+        return [task_factory(raquery.inputs[0], step=self.step + 1, env=self.exec_environment, optimize=True)]
+
+    def mapper(self, line):
+        relation, tuple = line.split('\t')
+        json_tuple = json.loads(tuple)
+
+        attrs = radb.parse.one_statement_from_string(self.querystring).attrs
+        first_key = list(json_tuple.keys())[0]
+        table_name = first_key[:first_key.index(".")]
+
+        attributes = [str(att) if att.rel is not None else table_name + "." + att.name for att in attrs]
+        d = {}
+        for k, v in json_tuple.items():
+            if k in attributes:
+                d[k] = v
+        if len(d) != 0:
+            res = json.dumps(d)
+            yield (relation, res)
+
+    def reducer(self, key, values):
+        new_values = set(values)
+        for e in new_values:
+            yield (key, e)
+
 
 
 class ProjectTask(RelAlgQueryTask):
