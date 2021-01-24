@@ -70,7 +70,7 @@ def select(stmt_tokens, table_names):
     """ the select operation """
     where_clause = stmt_tokens[-1] if str(stmt_tokens[-1][0]) == 'where' else None
     where_string = where_clause.value.replace('and', '')
-    attributes_list = re.findall(r"[\w']+[.|\s][\w']+|[\w']+[\d']+|[\w']+[\w']", where_string[5:])
+    attributes_list = re.findall(r"[\w']+[.|\s][\w']+|[\d']+[-]+[\w']+|[\w']+[\d']+|[\d']+|[\w']+[\w']+", where_string[5:])
     attref_list = [radb.ast.AttrRef(rel=extract_rel_name(attribute)['rel'], name=extract_rel_name(attribute)['name'])
                    for attribute in attributes_list]
     n = len(attref_list)
@@ -111,13 +111,3 @@ def translate(stmt):
     else:
         return project(patters['columns'], stmt_tokens, patters['from'])
 
-
-######### Test #########
-sql = "select distinct * from CUSTOMER,ORDERS,LINEITEM where CUSTOMER.C_CUSTKEY=ORDERS.O_CUSTKEY " \
-      "and ORDERS.O_ORDERKEY = LINEITEM.L_ORDERKEY and LINEITEM.L_SHIPMODE='AIR' " \
-      "and CUSTOMER.C_MKTSEGMENT = 'HOUSEHOLD'"
-stmt = sqlparse.parse(sql)[0]
-ra = translate(stmt)
-# print('='*100)
-# print(ra)
-# print('='*100)

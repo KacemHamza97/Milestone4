@@ -55,7 +55,7 @@ def eval(sf, env, query, optimize):
     ra3 = raopt.rule_merge_selections(ra2)
     ra4 = raopt.rule_introduce_joins(ra3)
 
-    task = ra2mr.task_factory(ra4, env=env, optimize=True)
+    task = ra2mr.task_factory(ra4, env=env, optimize=optimize)
 
     luigi.build([task], local_scheduler=True)
 

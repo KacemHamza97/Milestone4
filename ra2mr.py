@@ -67,7 +67,7 @@ def get_table(ra):
 def extract_cond(table_name, cond):
     """returns a list of tuple(s) each tuple contains the 2 terms of a condition"""
     condition = re.sub("and", "", str(cond))
-    cond_list = re.findall(r"[\w']+[.|\s][\w']+|[\w']+[\d']*|[\w']+[\w']", condition)
+    cond_list = re.findall(r"[\w']+[.|\s][\w']+|[\d']+[-]+[\w']+|[\w']+[\d']+|[\d']+|[\w']+[\w']+", condition)
     L = []
     n = len(cond_list)
     for i in range(0, n - 1, 2):
@@ -165,13 +165,13 @@ this produces a tree of luigi tasks with the physical query operators.
 
 def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=True):
     assert (isinstance(raquery, radb.ast.Node))
-    if optimize:
 
+    if optimize:
         if isinstance(raquery, radb.ast.Select) and isinstance(raquery.inputs[0], radb.ast.Rename):
-            return SelectRenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+            return SelectOpTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
         elif isinstance(raquery, radb.ast.Join):
-            return JointSelect(querystring=str(raquery) + ";", step=step, exec_environment=env)
+            return JointOpTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
         if isinstance(raquery, radb.ast.Select):
             return SelectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
@@ -211,12 +211,8 @@ def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=True):
             raise Exception("Operator " + str(type(raquery)) + " not implemented (yet).")
 
 
+class JointOpTask(RelAlgQueryTask):
 
-
-
-class JointSelect(RelAlgQueryTask):
-    ###not working :( I should implement a simple joint class with two inputs of type (select, rename)
-    ### otherwise let the normal joint does the work
     def requires(self):
         ra = radb.parse.one_statement_from_string(self.querystring)
         assert (isinstance(ra, radb.ast.Join))
@@ -227,9 +223,14 @@ class JointSelect(RelAlgQueryTask):
         if isinstance(ra.inputs[0], radb.ast.Select):
             if isinstance(ra.inputs[0].inputs[0], radb.ast.Rename):
                 task1 = task_factory(ra.inputs[0].inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
+            else:
+                task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
         elif isinstance(ra.inputs[1], radb.ast.Select):
             if isinstance(ra.inputs[1].inputs[0], radb.ast.Rename):
                 task2 = task_factory(ra.inputs[1].inputs[0].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
+                                     env=self.exec_environment)
+            else:
+                task2 = task_factory(ra.inputs[1].inputs[0], step=self.step + count_steps(ra.inputs[0]) + 1,
                                      env=self.exec_environment)
         if isinstance(ra.inputs[0], radb.ast.Rename):
             task1 = task_factory(ra.inputs[0].inputs[0], step=self.step + 1, env=self.exec_environment)
@@ -245,7 +246,7 @@ class JointSelect(RelAlgQueryTask):
 
         input0 = ra.inputs[0]
         input1 = ra.inputs[1]
-        if isinstance(input0, radb.ast.Join) and relation == 'joint1': #ici l'erreur
+        if isinstance(input0, radb.ast.Join) and relation == 'joint1':  # ici l'erreur
             res = json.dumps(json_tuple)
             yield ("join", res)
         if isinstance(input1, radb.ast.Join) and relation == 'joint1':
@@ -355,7 +356,6 @@ class JointSelect(RelAlgQueryTask):
             res = json.dumps(json_tuple)
             yield ("join", res)
 
-
     def reducer(self, key, values):
         raquery = radb.parse.one_statement_from_string(self.querystring)
         condition = raquery.cond
@@ -436,34 +436,7 @@ class JoinTask(RelAlgQueryTask):
                     yield ('joint1', res)
 
 
-class SelectTask(RelAlgQueryTask):
-
-    def requires(self):
-        raquery = radb.parse.one_statement_from_string(self.querystring)
-        assert (isinstance(raquery, radb.ast.Select))
-
-        return [task_factory(raquery.inputs[0], step=self.step + 1, env=self.exec_environment)]
-
-    def mapper(self, line):
-        relation, tuple = line.split('\t')
-        json_tuple = json.loads(tuple)
-        ra = radb.parse.one_statement_from_string(self.querystring)
-        ra = clean_select(ra)
-        condition = ra.cond
-
-        first_key = list(json_tuple.keys())[0]
-        table_name = first_key[:first_key.index(".")]
-        cond_list = extract_cond(table_name, condition)
-        test = True
-        for c1, c2 in cond_list:
-            if not cmp(str(json_tuple[c1]), c2):
-                test = False
-                break
-        if test:
-            yield (relation, tuple)
-
-
-class SelectRenameTask(RelAlgQueryTask):
+class SelectOpTask(RelAlgQueryTask):
     def requires(self):
         raquery = radb.parse.one_statement_from_string(self.querystring)
         assert (isinstance(raquery, radb.ast.Select))
@@ -496,6 +469,33 @@ class SelectRenameTask(RelAlgQueryTask):
         if test:
             res = json.dumps(d)
             yield (relation, res)
+
+
+class SelectTask(RelAlgQueryTask):
+
+    def requires(self):
+        raquery = radb.parse.one_statement_from_string(self.querystring)
+        assert (isinstance(raquery, radb.ast.Select))
+
+        return [task_factory(raquery.inputs[0], step=self.step + 1, env=self.exec_environment)]
+
+    def mapper(self, line):
+        relation, tuple = line.split('\t')
+        json_tuple = json.loads(tuple)
+        ra = radb.parse.one_statement_from_string(self.querystring)
+        ra = clean_select(ra)
+        condition = ra.cond
+
+        first_key = list(json_tuple.keys())[0]
+        table_name = first_key[:first_key.index(".")]
+        cond_list = extract_cond(table_name, condition)
+        test = True
+        for c1, c2 in cond_list:
+            if not cmp(str(json_tuple[c1]), c2):
+                test = False
+                break
+        if test:
+            yield (relation, tuple)
 
 
 class RenameTask(RelAlgQueryTask):
