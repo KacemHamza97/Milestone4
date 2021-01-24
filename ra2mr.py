@@ -165,32 +165,53 @@ this produces a tree of luigi tasks with the physical query operators.
 
 def task_factory(raquery, step=1, env=ExecEnv.HDFS, optimize=True):
     assert (isinstance(raquery, radb.ast.Node))
+    if optimize:
 
-    if isinstance(raquery, radb.ast.Select) and isinstance(raquery.inputs[0], radb.ast.Rename):
-        return SelectRenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+        if isinstance(raquery, radb.ast.Select) and isinstance(raquery.inputs[0], radb.ast.Rename):
+            return SelectRenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
-    elif isinstance(raquery, radb.ast.Join):
-        return JointSelect(querystring=str(raquery) + ";", step=step, exec_environment=env)
+        elif isinstance(raquery, radb.ast.Join):
+            return JointSelect(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
-    if isinstance(raquery, radb.ast.Select):
-        return SelectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+        if isinstance(raquery, radb.ast.Select):
+            return SelectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
-    elif isinstance(raquery, radb.ast.Rename):
-        return RenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+        elif isinstance(raquery, radb.ast.Rename):
+            return RenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
-    elif isinstance(raquery, radb.ast.RelRef):
-        filename = raquery.rel + ".json"
-        return InputData(filename=filename, exec_environment=env)
+        elif isinstance(raquery, radb.ast.RelRef):
+            filename = raquery.rel + ".json"
+            return InputData(filename=filename, exec_environment=env)
 
-    # elif isinstance(raquery, radb.ast.Join):
-    #     return JoinTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+        elif isinstance(raquery, radb.ast.Project):
+            return ProjectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
 
-    elif isinstance(raquery, radb.ast.Project):
-        return ProjectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
-
+        else:
+            # We will not evaluate the Cross product on Hadoop, too expensive.
+            raise Exception("Operator " + str(type(raquery)) + " not implemented (yet).")
     else:
-        # We will not evaluate the Cross product on Hadoop, too expensive.
-        raise Exception("Operator " + str(type(raquery)) + " not implemented (yet).")
+        if isinstance(raquery, radb.ast.Select):
+            return SelectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+
+        elif isinstance(raquery, radb.ast.RelRef):
+            filename = raquery.rel + ".json"
+            return InputData(filename=filename, exec_environment=env)
+
+        elif isinstance(raquery, radb.ast.Join):
+            return JoinTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+
+        elif isinstance(raquery, radb.ast.Project):
+            return ProjectTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+
+        elif isinstance(raquery, radb.ast.Rename):
+            return RenameTask(querystring=str(raquery) + ";", step=step, exec_environment=env)
+
+        else:
+            # We will not evaluate the Cross product on Hadoop, too expensive.
+            raise Exception("Operator " + str(type(raquery)) + " not implemented (yet).")
+
+
+
 
 
 class JointSelect(RelAlgQueryTask):
